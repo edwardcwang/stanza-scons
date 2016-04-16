@@ -23,11 +23,18 @@ else:
   env['STANZAC'] = 'stanza'
   print("Using default STANZAC=%s" % env['STANZAC'])
 
-if GetOption('stanzadir'):
-  env['STANZADIR'] = GetOption('stanzadir')
-  print("Using specified STANZADIR='%s'" % env['STANZADIR'])
-else:
-  raise Exception("TEMPORARY: must define --stanzadir to location of compiler")
+stanza_config_file = open(os.path.join(os.path.expanduser('~'), '.stanza'), 'r')
+
+found = False
+for line in stanza_config_file:
+  line_split = line.split('=')
+  line_split = [elt.strip() for elt in line_split]
+  line_split = [elt.strip('"') for elt in line_split]
+  if line_split[0] == 'install-dir':
+    assert not found, "multiple install-dir found in .stanza config"
+    env['STANZADIR'] = line_split[1]
+    found = True
+assert found, "no install-dir found in .stanza config"
 
 env['STANZA_FLAGS'] = []
 
