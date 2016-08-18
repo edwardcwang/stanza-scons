@@ -30,12 +30,14 @@ assert 'STANZADIR' in env, "no install-dir found in .stanza config"
 env['STANZA_FLAGS'] = []
 
 # Propagate some required environment variables from OS
-# TODO: do this in a similar way to other SCons tools  
+# TODO: do this in a similar way to other SCons tools
 if 'TEMP' not in env['ENV'] and 'TEMP' in os.environ:
   # Required for MinGW builds
   env['ENV']['TEMP'] = os.environ['TEMP']
 if 'STANZA_CONFIG' not in env['ENV'] and 'STANZA_CONFIG' in os.environ:
   env['ENV']['STANZA_CONFIG'] = os.environ['STANZA_CONFIG']
+if 'HOME' not in env['ENV'] and 'HOME' in os.environ:
+  env['ENV']['HOME'] = os.environ['HOME']
 
 ##
 ## Stanza Compiler Builder
