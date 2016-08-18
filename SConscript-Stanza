@@ -1,45 +1,41 @@
 import shlex, subprocess
 from collections import namedtuple
 import os
+import warnings
 
 Import('env')
 
-AddOption('--stanzac',
-          dest='stanzac',
-          type='string',
-          action='store',
-          help='custom stanza executable')
-
-AddOption('--stanzadir',
-          dest='stanzadir',
-          type='string',
-          action='store',
-          help='(temporary) path to stanza install, needed for macro compilation')
-
-if GetOption('stanzac'):
-  env['STANZAC'] = GetOption('stanzac')
-  print("Using specified STANZAC='%s'" % env['STANZAC'])
-else:
+if 'STANZAC' not in env:
   env['STANZAC'] = 'stanza'
-  print("Using default STANZAC=%s" % env['STANZAC'])
 
 if 'STANZA_CONFIG' not in env:
-  ## TODO: provide warning when falling back to default
-  env['STANZA_CONFIG'] = os.path.expanduser('~')
+  if 'STANZA_CONFIG' in env['ENV']:
+    env['STANZA_CONFIG'] = env['ENV']['STANZA_CONFIG']
+  if 'STANZA_CONFIG' in os.environ:
+    env['STANZA_CONFIG'] = os.environ['STANZA_CONFIG']
+  else:
+    warnings.warn("No STANZA_CONFIG detected, falling back to homedir")
+    env['STANZA_CONFIG'] = os.path.expanduser('~')
 stanza_config_file = open(os.path.join(env['STANZA_CONFIG'], '.stanza'), 'r')
 
-found = False
 for line in stanza_config_file:
   line_split = line.split('=')
   line_split = [elt.strip() for elt in line_split]
   line_split = [elt.strip('"') for elt in line_split]
   if line_split[0] == 'install-dir':
-    assert not found, "multiple install-dir found in .stanza config"
+    assert 'STANZADIR' not in env, "multiple install-dir found in .stanza config"
     env['STANZADIR'] = line_split[1]
-    found = True
-assert found, "no install-dir found in .stanza config"
+assert 'STANZADIR' in env, "no install-dir found in .stanza config"
 
 env['STANZA_FLAGS'] = []
+
+# Propagate some required environment variables from OS
+# TODO: do this in a similar way to other SCons tools  
+if 'TEMP' not in env['ENV'] and 'TEMP' in os.environ:
+  # Required for MinGW builds
+  env['ENV']['TEMP'] = os.environ['TEMP']
+if 'STANZA_CONFIG' not in env['ENV'] and 'STANZA_CONFIG' in os.environ:
+  env['ENV']['STANZA_CONFIG'] = os.environ['STANZA_CONFIG']
 
 ##
 ## Stanza Compiler Builder
@@ -84,7 +80,8 @@ env.AddMethod(StanzaLib)
 # Compiles a Stanza program
 _stanza_builder = Builder(
   action='$STANZAC $SOURCES -o $TARGET -s ${TARGET}_src.s $STANZA_FLAGS',
-  src_suffix='.stanza')
+  src_suffix='.stanza',
+  suffix='$PROGSUFFIX')
 
 def Stanza(env, target, source, stanzac=None):
   if stanzac is not None:
