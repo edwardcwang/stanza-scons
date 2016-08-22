@@ -73,10 +73,16 @@ def Stanza(env, target, source, stanzac=None):
     env = env.Clone(
       STANZAC=stanzac,
     )
-    Depends(target, stanzac)
   if env['STANZA_LIBS']:
     source = sum([lib.Sources for lib in env['STANZA_LIBS']], []) + source
-  return _stanza_builder.__call__(env, target, source)
+  
+  # Calling this early makes sure the stanzac dependency is named correctly
+  # for example, if a program suffix is needed  
+  target = _stanza_builder.__call__(env, target, source)
+  
+  if stanzac is not None:
+    Depends(target, stanzac)
+  return target
 
 env.AddMethod(Stanza)
 
@@ -94,6 +100,6 @@ def StanzaCompiler(env, target, source):
   env = env.Clone()
   env.Append(STANZA_FLAGS = '-optimize')
   source = source + [env['STANZA_COMPILER_MAIN']]
-  return env.Stanza(File(target), source)
+  return env.Stanza(target, source)
 
 env.AddMethod(StanzaCompiler)
