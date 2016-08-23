@@ -57,9 +57,10 @@ env['STANZA_LIBS'] = []
 # A simple wrapper around source files for a static library, since Stanza has
 # no concept of a static library currently.
 # TODO: replace with Stanza static libraries when ready
-def StanzaLib(env, target, source):
-  assert isinstance(source, list)
-  return StanzaLibType(source)
+def StanzaLib(env, target, sources):
+  assert isinstance(sources, list)
+  sources = [File(source) for source in sources]
+  return StanzaLibType(sources)
 env.AddMethod(StanzaLib)
 
 # Compiles a Stanza program
@@ -75,11 +76,11 @@ def Stanza(env, target, source, stanzac=None):
     )
   if env['STANZA_LIBS']:
     source = sum([lib.Sources for lib in env['STANZA_LIBS']], []) + source
-  
+
   # Calling this early makes sure the stanzac dependency is named correctly
-  # for example, if a program suffix is needed  
+  # for example, if a program suffix is needed
   target = _stanza_builder.__call__(env, target, source)
-  
+
   if stanzac is not None:
     Depends(target, stanzac)
   return target
