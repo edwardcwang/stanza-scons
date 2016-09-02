@@ -5,18 +5,12 @@ import warnings
 
 Import('env')
 
-if 'STANZAC' not in env:
-  env['STANZAC'] = 'stanza'
-
-if 'STANZA_CONFIG' not in env:
-  if 'STANZA_CONFIG' in env['ENV']:
-    env['STANZA_CONFIG'] = env['ENV']['STANZA_CONFIG']
-  if 'STANZA_CONFIG' in os.environ:
-    env['STANZA_CONFIG'] = os.environ['STANZA_CONFIG']
-  else:
-    warnings.warn("No STANZA_CONFIG detected, falling back to homedir")
-    env['STANZA_CONFIG'] = os.path.expanduser('~')
-stanza_config_file = open(os.path.join(env['STANZA_CONFIG'], '.stanza'), 'r')
+if 'STANZA_CONFIG' in os.environ:
+  stanza_config_dir = os.environ['STANZA_CONFIG']
+else:
+  warnings.warn("No STANZA_CONFIG environment variable detected, falling back to homedir")
+  stanza_config_dir = os.path.expanduser('~')
+stanza_config_file = open(os.path.join(stanza_config_dir, '.stanza'), 'r')
 
 for line in stanza_config_file:
   line_split = line.split('=')
@@ -26,18 +20,6 @@ for line in stanza_config_file:
     assert 'STANZADIR' not in env, "multiple install-dir found in .stanza config"
     env['STANZADIR'] = line_split[1]
 assert 'STANZADIR' in env, "no install-dir found in .stanza config"
-
-env['STANZA_FLAGS'] = []
-
-if 'STANZAFILESUFFIX' not in env:
-  env['STANZAFILESUFFIX'] = '.stanza'
-
-if 'STANZAPROGSUFFIX' not in env:
-  if env['PLATFORM'] == 'win32':
-    # Stanza seems to add a .exe suffix onto compiled programs for some reason.
-    env['STANZAPROGSUFFIX'] = '.exe'
-  else:
-    env['STANZAPROGSUFFIX'] = ''
 
 # Propagate some required environment variables from OS
 # TODO: do this in a similar way to other SCons tools
@@ -52,16 +34,23 @@ if 'HOME' not in env['ENV'] and 'HOME' in os.environ:
 ##
 ## Stanza Builder
 ##
+env.SetDefault(STANZAC = 'stanza')
+env.SetDefault(STANZACOM = '$STANZAC $SOURCES -o $TARGET -s ${TARGET}_src.s $STANZA_FLAGS')
+env.SetDefault(STANZACOMSTR = '$STANZACOM')
 
-if 'STANZACOM' not in env:
-  env['STANZACOM'] = '$STANZAC $SOURCES -o $TARGET -s ${TARGET}_src.s $STANZA_FLAGS'
+env.SetDefault(STANZAFILESUFFIX = '.stanza')
 
-if 'STANZACOMSTR' not in env:
-  env['STANZACOMSTR'] = '$STANZACOM'
+if env['PLATFORM'] == 'win32':
+  # Stanza seems to add a .exe suffix onto compiled programs for some reason.
+  env.SetDefault(STANZAPROGSUFFIX = '.exe')
+else:
+  env.SetDefault(STANZAPROGSUFFIX = '')
+
+env.SetDefault(STANZA_FLAGS = [])
 
 StanzaLibType = namedtuple('StanzaLibType', ['Sources'])
 
-env['STANZA_LIBS'] = []
+env.SetDefault(STANZA_LIBS = [])
 
 # A simple wrapper around source files for a static library, since Stanza has
 # no concept of a static library currently.
@@ -100,7 +89,7 @@ env.AddMethod(Stanza)
 ## Stanza Compiler Builder
 ##
 stanza_compiler_main = "compiler/stz-main.stanza"
-env['STANZA_COMPILER_MAIN'] = File(os.path.join(env['STANZADIR'], stanza_compiler_main))
+env.SetDefault(STANZA_COMPILER_MAIN = File(os.path.join(env['STANZADIR'], stanza_compiler_main)))
 
 """Builds a Stanza compiler with additional sources for macros.
 An intermediate target (the compiler binary) is generated, and the final out
