@@ -1,5 +1,6 @@
 import shlex, subprocess
 from collections import namedtuple
+import re
 import os
 import warnings
 
@@ -35,8 +36,10 @@ if 'HOME' not in env['ENV'] and 'HOME' in os.environ:
 ## Stanza Builder
 ##
 env.SetDefault(STANZAC = 'stanza')
-env.SetDefault(STANZACOM = '$STANZAC $SOURCES -o $TARGET -s ${TARGET}_src.s $STANZA_FLAGS')
+env.SetDefault(STANZACOM = '$STANZAC $STANZALIBS $SOURCES -o $TARGET -s ${TARGET}_src.s $STANZA_FLAGS')
 env.SetDefault(STANZACOMSTR = '$STANZACOM')
+env.SetDefault(STANZALIBCOM = '$STANZAC $STANZALIBS $SOURCE -pkg $TARGET_DIR $STANZA_FLAGS')
+env.SetDefault(STANZALIBCOMSTR = '$STANZALIBCOM')
 
 env.SetDefault(STANZAFILESUFFIX = '.stanza')
 
@@ -52,33 +55,125 @@ StanzaLibType = namedtuple('StanzaLibType', ['Sources'])
 
 env.SetDefault(STANZA_LIBS = [])
 
-# A simple wrapper around source files for a static library, since Stanza has
-# no concept of a static library currently.
-# TODO: replace with Stanza static libraries when ready
-def StanzaLib(env, target, sources):
-  assert isinstance(sources, list)
-  sources = [File(source) for source in sources]
-  return StanzaLibType(sources)
-env.AddMethod(StanzaLib)
+# Read the given filename and return the stanza package name, or returns None.
+# e.g. 'foo/bar/baz'
+def stanza_package_name(filename):
+  try:
+    f = open(filename, 'r')
+  except IOError:
+    return None
+  contents = f.read()
+  m = re.search('defpackage ([a-zA-Z\d\-/]+) :', contents)
+  if m is None:
+    return None
+  return m.group(1)
 
-# Compiles a Stanza program
-_stanza_builder = Builder(
-  action=Action('$STANZACOM', '$STANZACOMSTR'),
-  src_suffix='$STANZAFILESUFFIX',
-  suffix='$STANZAPROGSUFFIX')
+# Read the given stanza package name and transform it to a file name.
+# e.g. 'foo/bar/baz' -> 'foo$bar$baz.pkg'
+# Returns '$$' since SCons will expand variable names otherwise.
+def stanza_package_to_filename(package_name):
+  return package_name.replace('/', '$$') + '.pkg'
 
-def Stanza(env, target, source, stanzac=None):
+# Compiles a Stanza library
+_stanza_lib_builder = Builder(
+  action=[
+    ['mkdir', '-p', '$TARGET_DIR'],
+    Action('$STANZALIBCOM', '$STANZALIBCOMSTR'),
+    # Purge the temporary default*.pkg files.
+    # Delete(Glob('${TARGET_DIR}/default*.pkg')) doesn't work here...
+    # It just results in Delete([]) for some reason.
+    ['sh', '-c', 'rm -f ${TARGET_DIR}/default*.pkg']
+  ]
+)
+
+# Build a single stanza library (.pkg) with the given dependent libs.
+# target_dir - target directory in which to put the package (Stanza enforces a
+#              particular .pkg filename like Java .class)
+# source - the .stanza source file
+# libs - list of dependent library .pkg files
+def StanzaLibSingle(env, target_dir, source, libs=[], stanzac=None):
+  assert not isinstance(source, list)
+  assert isinstance(libs, list)
+
+  source = File(source)
+  raw_target_dir = target_dir
+  target_dir = Dir(target_dir)
+
+  package_name = stanza_package_name(source.srcnode().abspath)
+  assert package_name is not None
+
+  target = os.path.join(raw_target_dir, stanza_package_to_filename(package_name))
+
+  # Add some stuff to the environment.
   if stanzac is not None:
     env = env.Clone(
       STANZAC=stanzac,
     )
-  if env['STANZA_LIBS']:
-    source = sum([lib.Sources for lib in env['STANZA_LIBS']], []) + source
+  env = env.Clone(
+    STANZALIBS=libs,
+    TARGET_DIR=target_dir,
+  )
+
+  target_ = target
+  # Calling this early makes sure the stanzac dependency is named correctly
+  # for example, if a program suffix is needed
+  target = _stanza_lib_builder.__call__(env, target, source)
+  assert len(target) == 1
+  target = target[0] # only one target here
+
+  # Add all the dependencies of the node.
+  # Add here to add to the node, not the string target.
+  for lib in libs:
+    Depends(target, lib)
+  if stanzac is not None:
+    Depends(target, stanzac)
+
+  return target
+
+env.AddMethod(StanzaLibSingle)
+
+# Build one or more stanza libraries (.pkg) with the given dependent libs.
+# target_dir - target directory in which to put the package (Stanza enforces a
+#              particular .pkg filename like Java .class)
+# sources - list of source files. One library will be generated per source
+# libs - list of dependent library .pkg files
+def StanzaLib(env, target_dir, sources, libs=[], stanzac=None):
+  assert isinstance(sources, list)
+  assert isinstance(libs, list)
+
+  if len(sources) == 0:
+    return None
+
+  result = []
+  for source in sources:
+    result.append(env.StanzaLibSingle(target_dir, source, libs, stanzac))
+  return result
+
+env.AddMethod(StanzaLib)
+
+# Compiles a Stanza program
+_stanza_program_builder = Builder(
+  action=Action('$STANZACOM', '$STANZACOMSTR'),
+  src_suffix='$STANZAFILESUFFIX',
+  suffix='$STANZAPROGSUFFIX')
+
+def Stanza(env, target, source, libs, stanzac=None):
+  if stanzac is not None:
+    env = env.Clone(
+      STANZAC=stanzac,
+    )
+
+  env = env.Clone(
+    STANZALIBS=libs,
+  )
 
   # Calling this early makes sure the stanzac dependency is named correctly
   # for example, if a program suffix is needed
-  target = _stanza_builder.__call__(env, target, source)
+  target = _stanza_program_builder.__call__(env, target, source)
 
+  # Add dependencies to target Node.
+  for lib in libs:
+    Depends(target, lib)
   if stanzac is not None:
     Depends(target, stanzac)
   return target
@@ -95,10 +190,10 @@ env.SetDefault(STANZA_COMPILER_MAIN = File(os.path.join(env['STANZADIR'], stanza
 An intermediate target (the compiler binary) is generated, and the final out
 is just that wrapped in a script generated by Stanza's installer.
 """
-def StanzaCompiler(env, target, source):
+def StanzaCompiler(env, target, source, libs):
   env = env.Clone()
   env.Append(STANZA_FLAGS = '-optimize')
   source = source + [env['STANZA_COMPILER_MAIN']]
-  return env.Stanza(target, source)
+  return env.Stanza(target, source, libs)
 
 env.AddMethod(StanzaCompiler)
