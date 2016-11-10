@@ -1,5 +1,5 @@
 import shlex, subprocess
-from collections import namedtuple
+from collections import Iterable, namedtuple
 import re
 import os
 import warnings
@@ -35,7 +35,9 @@ if 'HOME' not in env['ENV'] and 'HOME' in os.environ:
 ##
 ## Stanza Builder
 ##
-env.SetDefault(STANZAC = 'stanza')
+default_stanzac = env.WhereIs('stanza')
+assert default_stanzac is not None, "Stanza compiler not found in PATH"
+env.SetDefault(STANZAC = default_stanzac)
 env.SetDefault(STANZACOM = '$STANZAC $STANZALIBS $SOURCES -o $TARGET -s ${TARGET}_src.s $STANZA_FLAGS')
 env.SetDefault(STANZACOMSTR = '$STANZACOM')
 env.SetDefault(STANZALIBCOM = '$STANZAC $STANZALIBS $SOURCE -pkg $TARGET_DIR $STANZA_FLAGS')
@@ -54,6 +56,21 @@ env.SetDefault(STANZA_FLAGS = [])
 StanzaLibType = namedtuple('StanzaLibType', ['Sources'])
 
 env.SetDefault(STANZA_LIBS = [])
+
+# Flatten any nested list into a single-dimensional list.
+def flatten(lst):
+  for x in lst:
+    if isinstance(x, Iterable) and not isinstance(x, (str, bytes)):
+      for i in flatten(x):
+        yield i
+    else:
+      yield x
+
+# Helper function to flatten any possible nested lists in env['STANZAC'].
+def flatten_stanzac(env):
+  flat = list(flatten([env['STANZAC']]))
+  assert len(flat) == 1, "Cannot have multiple entities as stanza compiler"
+  return(flat)
 
 # Read the given filename and return the stanza package name, or returns None.
 # e.g. 'foo/bar/baz'
@@ -125,8 +142,7 @@ def StanzaLibSingle(env, target_dir, source, libs=[], stanzac=None):
   # Add here to add to the node, not the string target.
   for lib in libs:
     Depends(target, lib)
-  if stanzac is not None:
-    Depends(target, stanzac)
+  Depends(target, flatten_stanzac(env))
 
   return target
 
@@ -174,8 +190,8 @@ def Stanza(env, target, source, libs, stanzac=None):
   # Add dependencies to target Node.
   for lib in libs:
     Depends(target, lib)
-  if stanzac is not None:
-    Depends(target, stanzac)
+  Depends(target, flatten_stanzac(env))
+
   return target
 
 env.AddMethod(Stanza)
