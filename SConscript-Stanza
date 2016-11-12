@@ -32,6 +32,13 @@ if 'STANZA_CONFIG' not in env['ENV'] and 'STANZA_CONFIG' in os.environ:
 if 'HOME' not in env['ENV'] and 'HOME' in os.environ:
   env['ENV']['HOME'] = os.environ['HOME']
 
+# Expand any '.' in the PATH.
+# Otherwise, env.WhereIs may get confused when subsequent SConscripts are run, leading
+# it to look in build folders when we didn't ask for that.
+# TODO: Look into possible SCons bug/bug-by-design?
+expanded_path = os.pathsep.join([(path if path != '.' else env['ENV']['PWD']) for path in env['ENV']['PATH'].split(os.pathsep)])
+env['ENV']['PATH'] = expanded_path
+
 ##
 ## Stanza Builder
 ##
